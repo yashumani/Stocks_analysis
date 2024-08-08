@@ -90,6 +90,7 @@ def fetch_latest_articles(max_articles=100):
             break
 
     st.sidebar.info(f"Estimated API Requests Remaining Today: {remaining_requests}")
+    st.write(f"Number of articles fetched: {len(all_articles)}")
     return all_articles
 
 def highlight_keywords(text, keywords):
@@ -112,6 +113,7 @@ def filter_finance_news(articles):
             for keyword in finance_keywords
         )
     ]
+    st.write(f"Number of finance-related articles: {len(filtered_articles)}")
     return filtered_articles
 
 def analyze_sentiment(text):
@@ -128,6 +130,7 @@ def identify_tickers_and_companies(articles, nasdaq_tickers):
         tickers = [ticker for ticker in nasdaq_tickers if re.search(rf'\b{re.escape(ticker)}\b', content)]
         if tickers:
             identified_articles.append((article, tickers))
+    st.write(f"Identified tickers from articles: {[t for a, t in identified_articles]}")
     return identified_articles
 
 @st.cache_data(ttl=3600)
@@ -141,9 +144,10 @@ def fetch_and_prepare_data(ticker, period='5d', interval='5m'):
             return None
 
         # Create additional features
-        stock_data['SMA_20'] = stock_data['Close'].rolling(window=20).mean()
-        stock_data['SMA_50'] = stock_data['Close'].rolling(window=50).mean()
-        stock_data['RSI'] = calculate_rsi(stock_data['Close'])
+        stock_data['EMA_20'] = stock_data['Close'].ewm(span=20, adjust=False).mean()
+        stock_data['EMA_50'] = stock_data['Close'].ewm(span=50, adjust=False).mean()
+        stock_data['MACD'], stock_data['MACD_Signal'], _ = calculate_macd(stock_data['Close'])
+        stock_data['VWAP'] = calculate_vwap(stock_data)
 
         stock_data.dropna(inplace=True)
 
@@ -156,6 +160,20 @@ def fetch_and_prepare_data(ticker, period='5d', interval='5m'):
         st.error(f"Error fetching data for {ticker}: {e}")
         return None
 
+def calculate_macd(close, short_window=12, long_window=26, signal_window=9):
+    # Calculate MACD and MACD Signal
+    exp1 = close.ewm(span=short_window, adjust=False).mean()
+    exp2 = close.ewm(span=long_window, adjust=False).mean()
+    macd = exp1 - exp2
+    macd_signal = macd.ewm(span=signal_window, adjust=False).mean()
+    macd_diff = macd - macd_signal
+    return macd, macd_signal, macd_diff
+
+def calculate_vwap(data):
+    # Calculate VWAP
+    vwap = (data['Volume'] * (data['High'] + data['Low'] + data['Close']) / 3).cumsum() / data['Volume'].cumsum()
+    return vwap
+
 def calculate_rsi(data, window=14):
     # Calculate RSI
     delta = data.diff()
@@ -167,7 +185,7 @@ def calculate_rsi(data, window=14):
 
 def train_predict_model(stock_data):
     # Prepare features and target
-    features = ['Close', 'SMA_20', 'SMA_50', 'RSI']
+    features = ['Close', 'EMA_20', 'EMA_50', 'MACD', 'VWAP']
     X = stock_data[features]
     y = stock_data['Close'].shift(-1).dropna()
 
@@ -206,12 +224,12 @@ def train_predict_model(stock_data):
     return predictions, y_test, error, next_5min_pred
 
 def detect_chart_patterns(stock_data):
-    # Detect simple chart patterns like SMA crossover
+    # Detect simple chart patterns like EMA crossover
     patterns = []
-    if stock_data['SMA_20'].iloc[-1] > stock_data['SMA_50'].iloc[-1] and stock_data['SMA_20'].iloc[-2] <= stock_data['SMA_50'].iloc[-2]:
-        patterns.append("Bullish Crossover (SMA 20 crosses above SMA 50)")
-    if stock_data['SMA_20'].iloc[-1] < stock_data['SMA_50'].iloc[-1] and stock_data['SMA_20'].iloc[-2] >= stock_data['SMA_50'].iloc[-2]:
-        patterns.append("Bearish Crossover (SMA 20 crosses below SMA 50)")
+    if stock_data['EMA_20'].iloc[-1] > stock_data['EMA_50'].iloc[-1] and stock_data['EMA_20'].iloc[-2] <= stock_data['EMA_50'].iloc[-2]:
+        patterns.append("Bullish Crossover (EMA 20 crosses above EMA 50)")
+    if stock_data['EMA_20'].iloc[-1] < stock_data['EMA_50'].iloc[-1] and stock_data['EMA_20'].iloc[-2] >= stock_data['EMA_50'].iloc[-2]:
+        patterns.append("Bearish Crossover (EMA 20 crosses below EMA 50)")
     return patterns
 
 def display_articles_with_analysis(articles_with_tickers, period, interval):
@@ -263,21 +281,34 @@ def display_articles_with_analysis(articles_with_tickers, period, interval):
 
                 st.markdown(f"### Technical and Prediction Analysis for {ticker}")
 
-                # Plotting with Matplotlib and mplfinance
+                # Plotting with Matplotlib and mplfinance for price analysis
                 fig, axlist = mpf.plot(
                     stock_data,
                     type='candle',
-                    volume=True,
-                    title=f'Technical Analysis for {ticker} ({period.capitalize()} Period)',
+                    volume=False,  # Disable volume to separate analysis
+                    title=f'Price Analysis for {ticker} ({period.capitalize()} Period)',
                     ylabel='Price',
                     style='yahoo',
                     mav=(20, 50),
                     addplot=[
-                        mpf.make_addplot(stock_data['SMA_20'], color='green'),
-                        mpf.make_addplot(stock_data['SMA_50'], color='blue')
+                        mpf.make_addplot(stock_data['EMA_20'], color='green', label='EMA 20'),
+                        mpf.make_addplot(stock_data['EMA_50'], color='blue', label='EMA 50'),
+                        mpf.make_addplot(stock_data['VWAP'], color='purple', label='VWAP')
                     ],
                     returnfig=True
                 )
+                # Add legends manually
+                axlist[0].legend(loc='upper left')
+                st.pyplot(fig)
+
+                # MACD Plot
+                fig, ax = plt.subplots()
+                ax.plot(stock_data.index, stock_data['MACD'], label='MACD', color='red')
+                ax.plot(stock_data.index, stock_data['MACD_Signal'], label='Signal Line', color='blue')
+                ax.set_title(f'MACD Analysis for {ticker}')
+                ax.set_xlabel('Date')
+                ax.set_ylabel('MACD')
+                ax.legend()
                 st.pyplot(fig)
 
                 # Detect chart patterns
@@ -289,6 +320,16 @@ def display_articles_with_analysis(articles_with_tickers, period, interval):
 
                 st.markdown(f"Predicted Next Closing Price: **`{next_5min_pred:.2f}`**")
                 st.markdown(f"Model RMSE: **`{error:.2f}`**")
+
+                # Volume Analysis
+                fig, ax = plt.subplots()
+                ax.plot(stock_data.index, stock_data['Volume'], label='Volume', color='orange')
+                ax.set_title(f'Volume Analysis for {ticker} ({period.capitalize()} Period)')
+                ax.set_xlabel('Date')
+                ax.set_ylabel('Volume')
+                ax.legend()
+                st.pyplot(fig)
+
                 st.markdown("---")
 
     # Plot sentiment comparison
@@ -370,14 +411,15 @@ st.sidebar.markdown(
     **Highlighted Information:**
     - **Tickers/Keywords**: Keywords and tickers in headlines and summaries are highlighted to draw attention.
 
-    **Chart Pattern Detection:**
-    - **Bullish Crossover**: Detected when the 20-day SMA crosses above the 50-day SMA, suggesting potential upward momentum.
-    - **Bearish Crossover**: Detected when the 20-day SMA crosses below the 50-day SMA, indicating potential downward momentum.
+    **Technical Indicators Explained:**
+    - **EMA (Exponential Moving Average)**: Gives more weight to recent prices to identify trends.
+    - **MACD (Moving Average Convergence Divergence)**: Indicates trend direction and strength, often used to signal buy/sell points.
+    - **VWAP (Volume Weighted Average Price)**: Reflects the average price a stock has traded at throughout the day, based on volume and price.
+    - **Chart Pattern Detection**: Identifies potential bullish or bearish crossovers using EMAs.
 
     **Feedback**: Use the feedback form to provide your thoughts about the app. Your feedback will be sent directly via email for further improvements.
     """
 )
-
 
 # Set interval based on date range
 interval = "1d" if date_range == "max" else "5m" if date_range == "1d" else "15m" if date_range == "5d" else "1h"
@@ -399,7 +441,7 @@ display_articles_with_analysis(articles_with_tickers, period=date_range, interva
 
 # Feedback Form
 st.sidebar.title("Feedback")
-st.sidebar.markdown("We would love to hear your thoughts about the app!")
+st.sidebar.markdown("We would love to hear your thoughts about the app!!")
 
 with st.sidebar.form("feedback_form"):
     name = st.text_input("Name")
