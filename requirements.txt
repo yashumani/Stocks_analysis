@@ -1,9 +1,9 @@
 streamlit
-nltk
+yfinance
 pandas
+numpy
 matplotlib
 mplfinance
-requests
-yfinance
 scikit-learn
-numpy
+nltk
+requests
