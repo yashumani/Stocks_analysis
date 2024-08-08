@@ -131,10 +131,10 @@ def identify_tickers_and_companies(articles, nasdaq_tickers):
     return identified_articles
 
 @st.cache_data(ttl=3600)
-def fetch_and_prepare_data(ticker):
-    # Fetch high-frequency data for the last 5 days with 5-minute intervals
+def fetch_and_prepare_data(ticker, period='5d', interval='5m'):
+    # Fetch high-frequency data for the selected period and interval
     try:
-        stock_data = yf.download(ticker, period="5d", interval="5m")
+        stock_data = yf.download(ticker, period=period, interval=interval)
         
         if stock_data.empty:
             st.warning(f"No data available for {ticker}.")
@@ -200,7 +200,7 @@ def train_predict_model(stock_data):
     last_row = stock_data[features].iloc[-1:].values.reshape(1, -1)
     last_row_scaled = scaler.transform(last_row)
 
-    # Predict the next 5-minute closing price
+    # Predict the next closing price
     next_5min_pred = model.predict(last_row_scaled)[0]
 
     return predictions, y_test, error, next_5min_pred
@@ -211,7 +211,7 @@ def plot_candlestick_with_technical_indicators(stock_data, ticker):
         stock_data,
         type='candle',
         volume=True,
-        title=f'Technical Analysis for {ticker} (5-Minute Interval)',
+        title=f'Technical Analysis for {ticker}',
         ylabel='Price',
         style='yahoo',
         mav=(20, 50),
@@ -221,7 +221,7 @@ def plot_candlestick_with_technical_indicators(stock_data, ticker):
         ]
     )
 
-def display_articles_with_analysis(articles_with_tickers):
+def display_articles_with_analysis(articles_with_tickers, period, interval):
     # Display all articles with sentiment analysis and identified tickers
     if not articles_with_tickers:
         st.warning("No relevant finance news articles with tickers found for today.")
@@ -260,7 +260,7 @@ def display_articles_with_analysis(articles_with_tickers):
         
         # Perform technical analysis and prediction for each ticker
         for ticker in tickers:
-            stock_data = fetch_and_prepare_data(ticker)
+            stock_data = fetch_and_prepare_data(ticker, period, interval)
             if stock_data is not None:
                 result = train_predict_model(stock_data)
                 if result is None:
@@ -275,7 +275,7 @@ def display_articles_with_analysis(articles_with_tickers):
                     stock_data,
                     type='candle',
                     volume=True,
-                    title=f'Technical Analysis for {ticker} (5-Minute Interval)',
+                    title=f'Technical Analysis for {ticker} ({period.capitalize()} Period)',
                     ylabel='Price',
                     style='yahoo',
                     mav=(20, 50),
@@ -287,7 +287,7 @@ def display_articles_with_analysis(articles_with_tickers):
                 )
                 st.pyplot(fig)
 
-                st.markdown(f"Predicted Next 5-Minute Closing Price: **`{next_5min_pred:.2f}`**")
+                st.markdown(f"Predicted Next Closing Price: **`{next_5min_pred:.2f}`**")
                 st.markdown(f"Model RMSE: **`{error:.2f}`**")
                 st.markdown("---")
 
@@ -310,8 +310,8 @@ def display_articles_with_analysis(articles_with_tickers):
 
 def send_feedback_email(name, email, feedback):
     # Send feedback email using SMTP
-    sender_email = "yashusharma800@gmail.com"  # Update this with your sender email
-    sender_password = "gwyf vabj ddft rouc"  # Update this with your email password
+    sender_email = "your_email@example.com"  # Update this with your sender email
+    sender_password = "your_app_password"  # Use the app password here
     receiver_email = "yashusharma800@gmail.com"
 
     subject = f"Feedback from {name}"
@@ -345,7 +345,7 @@ st.sidebar.markdown(
     **How to Use the App:**
     1. **Fetch News**: The app automatically fetches news articles related to finance, economy, stocks, markets, and business.
     2. **Analysis**: The app analyzes these articles to identify relevant NASDAQ tickers and performs sentiment analysis.
-    3. **Technical & Prediction Analysis**: For each identified ticker, the app performs technical analysis and predicts the next 5-minute closing price.
+    3. **Technical & Prediction Analysis**: For each identified ticker, the app performs technical analysis and predicts the next closing price.
     4. **Visualization**: Sentiment scores and technical indicators are visualized in charts.
 
     **Reading the Sentiment Analysis:**
@@ -360,6 +360,16 @@ st.sidebar.markdown(
     """
 )
 
+# Date Range Selection
+date_range = st.sidebar.selectbox(
+    "Select Date Range for Analysis",
+    ("1d", "5d", "1mo", "1y", "max"),
+    index=1
+)
+
+# Set interval based on date range
+interval = "1d" if date_range == "max" else "5m" if date_range == "1d" else "15m" if date_range == "5d" else "1h"
+
 # Fetch NASDAQ tickers automatically
 nasdaq_tickers = get_nasdaq_tickers()
 
@@ -373,7 +383,7 @@ finance_news = filter_finance_news(latest_articles)
 articles_with_tickers = identify_tickers_and_companies(finance_news, nasdaq_tickers)
 
 # Step 4: Display All Filtered Articles with Links and Analysis
-display_articles_with_analysis(articles_with_tickers)
+display_articles_with_analysis(articles_with_tickers, period=date_range, interval=interval)
 
 # Feedback Form
 st.sidebar.title("Feedback")
