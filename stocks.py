@@ -8,8 +8,8 @@ import streamlit as st
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import nltk
 import re
-import plotly.express as px
-import plotly.graph_objects as go
+import matplotlib.pyplot as plt
+import mplfinance as mpf
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.linear_model import LinearRegression
@@ -44,6 +44,7 @@ def get_nasdaq_tickers():
     df = pd.read_csv(file, sep='|')
     return df[df['Test Issue'] == 'N']['Symbol'].astype(str).tolist()
 
+@st.cache_data(ttl=3600)
 def fetch_latest_articles(max_articles=100):
     # Fetch the latest articles using pagination
     today = datetime.datetime.now()
@@ -85,7 +86,6 @@ def fetch_latest_articles(max_articles=100):
             st.error("Error fetching articles or no articles found.")
             break
 
-    st.write(f"Fetched {len(all_articles)} articles.")
     st.sidebar.info(f"Estimated API Requests Remaining Today: {remaining_requests}")
     return all_articles
 
@@ -127,21 +127,31 @@ def identify_tickers_and_companies(articles, nasdaq_tickers):
             identified_articles.append((article, tickers))
     return identified_articles
 
+@st.cache_data(ttl=3600)
 def fetch_and_prepare_data(ticker):
-    # Fetch historical data for the last 1 year
-    stock_data = yf.download(ticker, period="1y", interval="1d")
-    
-    if stock_data.empty:
+    # Fetch high-frequency data for the last 5 days with 5-minute intervals
+    try:
+        stock_data = yf.download(ticker, period="5d", interval="5m")
+        
+        if stock_data.empty:
+            st.warning(f"No data available for {ticker}.")
+            return None
+
+        # Create additional features
+        stock_data['SMA_20'] = stock_data['Close'].rolling(window=20).mean()
+        stock_data['SMA_50'] = stock_data['Close'].rolling(window=50).mean()
+        stock_data['RSI'] = calculate_rsi(stock_data['Close'])
+
+        stock_data.dropna(inplace=True)
+
+        if stock_data.shape[0] < 1:
+            st.warning(f"Insufficient data for {ticker} to perform analysis.")
+            return None
+
+        return stock_data
+    except Exception as e:
+        st.error(f"Error fetching data for {ticker}: {e}")
         return None
-
-    # Create additional features
-    stock_data['SMA_20'] = stock_data['Close'].rolling(window=20).mean()
-    stock_data['SMA_50'] = stock_data['Close'].rolling(window=50).mean()
-    stock_data['RSI'] = calculate_rsi(stock_data['Close'])
-
-    stock_data.dropna(inplace=True)
-
-    return stock_data
 
 def calculate_rsi(data, window=14):
     # Calculate RSI
@@ -154,11 +164,17 @@ def calculate_rsi(data, window=14):
 
 def train_predict_model(stock_data):
     # Prepare features and target
-    X = stock_data[['Close', 'SMA_20', 'SMA_50', 'RSI']]
+    features = ['Close', 'SMA_20', 'SMA_50', 'RSI']
+    X = stock_data[features]
     y = stock_data['Close'].shift(-1).dropna()
 
     # Align features and target
     X = X.iloc[:-1]
+
+    # Ensure there is data to fit the model
+    if X.empty or y.empty:
+        st.warning("Insufficient data to train the model.")
+        return None, None, None, None
 
     # Scale data
     scaler = MinMaxScaler()
@@ -177,20 +193,40 @@ def train_predict_model(stock_data):
     # Calculate error
     error = np.sqrt(mean_squared_error(y_test, predictions))
 
-    # Predict the next day's closing price
-    next_day_pred = model.predict(scaler.transform(stock_data[['Close', 'SMA_20', 'SMA_50', 'RSI']].iloc[-1:].values.reshape(1, -1)))
+    # Transform the latest data point with the same features
+    last_row = stock_data[features].iloc[-1:].values.reshape(1, -1)
+    last_row_scaled = scaler.transform(last_row)
 
-    return predictions, y_test, error, next_day_pred[0]
+    # Predict the next 5-minute closing price
+    next_5min_pred = model.predict(last_row_scaled)[0]
 
-def display_articles_with_analysis(articles_with_tickers, max_display=50):
-    # Display articles with sentiment analysis and identified tickers
+    return predictions, y_test, error, next_5min_pred
+
+def plot_candlestick_with_technical_indicators(stock_data, ticker):
+    # Plot candlestick chart with technical indicators using mplfinance
+    mpf.plot(
+        stock_data,
+        type='candle',
+        volume=True,
+        title=f'Technical Analysis for {ticker} (5-Minute Interval)',
+        ylabel='Price',
+        style='yahoo',
+        mav=(20, 50),
+        addplot=[
+            mpf.make_addplot(stock_data['SMA_20'], color='green'),
+            mpf.make_addplot(stock_data['SMA_50'], color='blue')
+        ]
+    )
+
+def display_articles_with_analysis(articles_with_tickers):
+    # Display all articles with sentiment analysis and identified tickers
     if not articles_with_tickers:
         st.warning("No relevant finance news articles with tickers found for today.")
         return
 
     sentiment_data = []
 
-    for article, tickers in articles_with_tickers[:max_display]:
+    for article, tickers in articles_with_tickers:
         title = article.get('title', '') or 'No title available'
         description = article.get('description', '') or 'No summary available'
         sentiment = analyze_sentiment(title)
@@ -223,22 +259,32 @@ def display_articles_with_analysis(articles_with_tickers, max_display=50):
         for ticker in tickers:
             stock_data = fetch_and_prepare_data(ticker)
             if stock_data is not None:
-                predictions, y_test, error, next_day_pred = train_predict_model(stock_data)
+                result = train_predict_model(stock_data)
+                if result is None:
+                    continue
+
+                predictions, y_test, error, next_5min_pred = result
 
                 st.markdown(f"### Technical and Prediction Analysis for {ticker}")
-                # Plotting technical indicators and predictions
-                fig = go.Figure()
-                fig.add_trace(go.Candlestick(x=stock_data.index,
-                                             open=stock_data['Open'],
-                                             high=stock_data['High'],
-                                             low=stock_data['Low'],
-                                             close=stock_data['Close'],
-                                             name='Candlestick'))
-                fig.add_trace(go.Scatter(x=stock_data.index, y=stock_data['SMA_20'], mode='lines', name='SMA 20'))
-                fig.add_trace(go.Scatter(x=stock_data.index, y=stock_data['SMA_50'], mode='lines', name='SMA 50'))
-                st.plotly_chart(fig)
 
-                st.markdown(f"Predicted Next Day's Closing Price: **`{next_day_pred:.2f}`**")
+                # Plotting with Matplotlib and mplfinance
+                fig, axlist = mpf.plot(
+                    stock_data,
+                    type='candle',
+                    volume=True,
+                    title=f'Technical Analysis for {ticker} (5-Minute Interval)',
+                    ylabel='Price',
+                    style='yahoo',
+                    mav=(20, 50),
+                    addplot=[
+                        mpf.make_addplot(stock_data['SMA_20'], color='green'),
+                        mpf.make_addplot(stock_data['SMA_50'], color='blue')
+                    ],
+                    returnfig=True
+                )
+                st.pyplot(fig)
+
+                st.markdown(f"Predicted Next 5-Minute Closing Price: **`{next_5min_pred:.2f}`**")
                 st.markdown(f"Model RMSE: **`{error:.2f}`**")
                 st.markdown("---")
 
@@ -250,18 +296,14 @@ def display_articles_with_analysis(articles_with_tickers, max_display=50):
         # Display all tickers analyzed
         st.write("Tickers Analyzed:", sentiment_df['Ticker'].tolist())
 
-        # Plotly visualization for sentiment comparison
-        fig = px.bar(
-            sentiment_df.melt(id_vars='Ticker', var_name='Sentiment', value_name='Score'),
-            x='Ticker',
-            y='Score',
-            color='Sentiment',
-            barmode='group',
-            title='Sentiment Analysis Comparison for Identified Tickers',
-            labels={'Score': 'Average Sentiment Score'}
-        )
-
-        st.plotly_chart(fig)
+        # Matplotlib visualization for sentiment comparison
+        fig, ax = plt.subplots()
+        melted_df = sentiment_df.melt(id_vars='Ticker', var_name='Sentiment', value_name='Score')
+        pivot_df = melted_df.pivot_table(index='Ticker', columns='Sentiment', values='Score', aggfunc='mean')
+        pivot_df.plot(kind='bar', ax=ax)
+        ax.set_title('Sentiment Analysis Comparison for Identified Tickers')
+        ax.set_ylabel('Average Sentiment Score')
+        st.pyplot(fig)
 
 # Streamlit App
 st.title("Today's US Finance News Analysis with Predictions")
@@ -273,7 +315,7 @@ st.sidebar.markdown(
     **How to Use the App:**
     1. **Fetch News**: The app automatically fetches news articles related to finance, economy, stocks, markets, and business.
     2. **Analysis**: The app analyzes these articles to identify relevant NASDAQ tickers and performs sentiment analysis.
-    3. **Technical & Prediction Analysis**: For each identified ticker, the app performs technical analysis and predicts the next day's closing price.
+    3. **Technical & Prediction Analysis**: For each identified ticker, the app performs technical analysis and predicts the next 5-minute closing price.
     4. **Visualization**: Sentiment scores and technical indicators are visualized in charts.
 
     **Reading the Sentiment Analysis:**
@@ -300,5 +342,5 @@ finance_news = filter_finance_news(latest_articles)
 # Step 3: Analyze News and Identify Tickers/Companies
 articles_with_tickers = identify_tickers_and_companies(finance_news, nasdaq_tickers)
 
-# Step 4: Display Filtered Articles with Links and Analysis (limit to 50 for display)
-display_articles_with_analysis(articles_with_tickers, max_display=50)
+# Step 4: Display All Filtered Articles with Links and Analysis
+display_articles_with_analysis(articles_with_tickers)
