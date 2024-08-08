@@ -18,5 +18,5 @@ This Streamlit app provides comprehensive sentiment analysis, technical analysis
 1. **Clone the Repository**
 
    ```bash
-   git clone https://github.com/yashumani/stocks.git
+   git clone https://github.com/yashumani/Stocks_analysis.git
    cd finance-news-analysis
