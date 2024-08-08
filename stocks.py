@@ -15,6 +15,9 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import mean_squared_error
 import numpy as np
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Ensure that the VADER lexicon is downloaded
 nltk.download('vader_lexicon')
@@ -305,6 +308,33 @@ def display_articles_with_analysis(articles_with_tickers):
         ax.set_ylabel('Average Sentiment Score')
         st.pyplot(fig)
 
+def send_feedback_email(name, email, feedback):
+    # Send feedback email using SMTP
+    sender_email = "yashusharma800@gmail.com"  # Update this with your sender email
+    sender_password = "gwyf vabj ddft rouc"  # Update this with your email password
+    receiver_email = "yashusharma800@gmail.com"
+
+    subject = f"Feedback from {name}"
+    body = f"Name: {name}\nEmail: {email}\n\nFeedback:\n{feedback}"
+
+    # Create email message
+    message = MIMEMultipart()
+    message["From"] = sender_email
+    message["To"] = receiver_email
+    message["Subject"] = subject
+
+    message.attach(MIMEText(body, "plain"))
+
+    # Send the email via SMTP server
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.sendmail(sender_email, receiver_email, message.as_string())
+            st.success("Thank you for your feedback! Your response has been sent.")
+    except Exception as e:
+        st.error(f"Error sending feedback: {e}")
+
 # Streamlit App
 st.title("Today's US Finance News Analysis with Predictions")
 
@@ -344,3 +374,16 @@ articles_with_tickers = identify_tickers_and_companies(finance_news, nasdaq_tick
 
 # Step 4: Display All Filtered Articles with Links and Analysis
 display_articles_with_analysis(articles_with_tickers)
+
+# Feedback Form
+st.sidebar.title("Feedback")
+st.sidebar.markdown("We would love to hear your thoughts about the app!")
+
+with st.sidebar.form("feedback_form"):
+    name = st.text_input("Name")
+    email = st.text_input("Email")
+    feedback = st.text_area("Your Feedback")
+    submitted = st.form_submit_button("Submit")
+
+    if submitted:
+        send_feedback_email(name, email, feedback)
