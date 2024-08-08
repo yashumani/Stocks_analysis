@@ -205,21 +205,14 @@ def train_predict_model(stock_data):
 
     return predictions, y_test, error, next_5min_pred
 
-def plot_candlestick_with_technical_indicators(stock_data, ticker):
-    # Plot candlestick chart with technical indicators using mplfinance
-    mpf.plot(
-        stock_data,
-        type='candle',
-        volume=True,
-        title=f'Technical Analysis for {ticker}',
-        ylabel='Price',
-        style='yahoo',
-        mav=(20, 50),
-        addplot=[
-            mpf.make_addplot(stock_data['SMA_20'], color='green'),
-            mpf.make_addplot(stock_data['SMA_50'], color='blue')
-        ]
-    )
+def detect_chart_patterns(stock_data):
+    # Detect simple chart patterns like SMA crossover
+    patterns = []
+    if stock_data['SMA_20'].iloc[-1] > stock_data['SMA_50'].iloc[-1] and stock_data['SMA_20'].iloc[-2] <= stock_data['SMA_50'].iloc[-2]:
+        patterns.append("Bullish Crossover (SMA 20 crosses above SMA 50)")
+    if stock_data['SMA_20'].iloc[-1] < stock_data['SMA_50'].iloc[-1] and stock_data['SMA_20'].iloc[-2] >= stock_data['SMA_50'].iloc[-2]:
+        patterns.append("Bearish Crossover (SMA 20 crosses below SMA 50)")
+    return patterns
 
 def display_articles_with_analysis(articles_with_tickers, period, interval):
     # Display all articles with sentiment analysis and identified tickers
@@ -287,6 +280,13 @@ def display_articles_with_analysis(articles_with_tickers, period, interval):
                 )
                 st.pyplot(fig)
 
+                # Detect chart patterns
+                patterns = detect_chart_patterns(stock_data)
+                if patterns:
+                    st.markdown("**Detected Chart Patterns:**")
+                    for pattern in patterns:
+                        st.markdown(f"- {pattern}")
+
                 st.markdown(f"Predicted Next Closing Price: **`{next_5min_pred:.2f}`**")
                 st.markdown(f"Model RMSE: **`{error:.2f}`**")
                 st.markdown("---")
@@ -338,34 +338,46 @@ def send_feedback_email(name, email, feedback):
 # Streamlit App
 st.title("Today's US Finance News Analysis with Predictions")
 
-# Sidebar Glossary
-st.sidebar.title("Glossary & Instructions")
-st.sidebar.markdown(
-    """
-    **How to Use the App:**
-    1. **Fetch News**: The app automatically fetches news articles related to finance, economy, stocks, markets, and business.
-    2. **Analysis**: The app analyzes these articles to identify relevant NASDAQ tickers and performs sentiment analysis.
-    3. **Technical & Prediction Analysis**: For each identified ticker, the app performs technical analysis and predicts the next closing price.
-    4. **Visualization**: Sentiment scores and technical indicators are visualized in charts.
-
-    **Reading the Sentiment Analysis:**
-    - **Positive**: Indicates a positive sentiment score for the article headline.
-    - **Negative**: Indicates a negative sentiment score for the article headline.
-    - **Neutral**: Reflects a neutral sentiment score, showing balance.
-    - **Compound**: This is a normalized score representing overall sentiment. Positive values suggest overall positive sentiment, negative values suggest negative sentiment.
-
-    **Highlighted Information:**
-    - **Tickers/Keywords**: Keywords and tickers in headlines and summaries are highlighted to draw attention.
-
-    """
-)
-
-# Date Range Selection
+# Sidebar: Date Range Selection
+st.sidebar.title("Settings")
 date_range = st.sidebar.selectbox(
     "Select Date Range for Analysis",
     ("1d", "5d", "1mo", "1y", "max"),
     index=1
 )
+
+# Sidebar Glossary
+st.sidebar.title("Glossary & Instructions")
+st.sidebar.markdown(
+    """
+    **How to Use the App:**
+    1. **Select Date Range**: Choose the desired date range for the analysis from the options: Day, Week, Month, Year, and Max. The data granularity (interval) will automatically adjust based on your selection.
+    
+    2. **Fetch News**: The app automatically retrieves news articles related to finance, economy, stocks, markets, and business for the selected date range.
+
+    3. **Analysis**: The app performs sentiment analysis on the fetched news articles and identifies relevant NASDAQ tickers.
+
+    4. **Technical & Prediction Analysis**: For each identified ticker, the app conducts technical analysis, detects chart patterns, and predicts the next closing price.
+
+    5. **Visualization**: View sentiment scores, technical indicators, and detected chart patterns in interactive charts.
+
+    **Reading the Sentiment Analysis:**
+    - **Positive**: Indicates a positive sentiment score for the article headline.
+    - **Negative**: Indicates a negative sentiment score for the article headline.
+    - **Neutral**: Reflects a neutral sentiment score, showing balance.
+    - **Compound**: This is a normalized score representing overall sentiment. Positive values suggest overall positive sentiment, while negative values suggest negative sentiment.
+
+    **Highlighted Information:**
+    - **Tickers/Keywords**: Keywords and tickers in headlines and summaries are highlighted to draw attention.
+
+    **Chart Pattern Detection:**
+    - **Bullish Crossover**: Detected when the 20-day SMA crosses above the 50-day SMA, suggesting potential upward momentum.
+    - **Bearish Crossover**: Detected when the 20-day SMA crosses below the 50-day SMA, indicating potential downward momentum.
+
+    **Feedback**: Use the feedback form to provide your thoughts about the app. Your feedback will be sent directly via email for further improvements.
+    """
+)
+
 
 # Set interval based on date range
 interval = "1d" if date_range == "max" else "5m" if date_range == "1d" else "15m" if date_range == "5d" else "1h"
