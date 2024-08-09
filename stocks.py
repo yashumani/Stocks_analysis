@@ -238,8 +238,8 @@ def display_articles_with_analysis(articles_with_tickers, period, interval):
 
 def send_feedback_email(name, email, feedback):
     # Send feedback email using SMTP
-    sender_email = "your_email@example.com"  # Update this with your sender email
-    sender_password = "your_app_password"  # Use the app password here
+    sender_email = "yashusharma800@gmail.com"  # Update this with your sender email
+    sender_password = "sdoe qftq nrem uoql"  # Use the app password here
     receiver_email = "yashusharma800@gmail.com"
 
     subject = f"Feedback from {name}"
