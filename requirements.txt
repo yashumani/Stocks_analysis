@@ -13,3 +13,4 @@ matplotlib
 mplfinance
 PyMuPDF
 Pillow
+tabula-py
