@@ -1,11 +1,10 @@
 streamlit
-yfinance
 pandas
-numpy
-matplotlib
-mplfinance
-scikit-learn
-nltk
+yfinance
 requests
 beautifulsoup4
-wordcloud
+nltk
+plotly
+scikit-learn
+transformers
+python-dotenv
