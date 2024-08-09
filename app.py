@@ -206,10 +206,10 @@ def identify_potential_gainers(sentiments, threshold=0.3):
 def generate_wordcloud(headlines):
     text = " ".join(headlines)
     wordcloud = WordCloud(width=800, height=400, background_color='white').generate(text)
-    plt.figure(figsize=(10, 5))
-    plt.imshow(wordcloud, interpolation='bilinear')
-    plt.axis('off')
-    st.pyplot(plt)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.imshow(wordcloud, interpolation='bilinear')
+    ax.axis('off')
+    st.pyplot(fig)
 
 # Function to perform technical analysis and predictions
 def technical_analysis_and_prediction(tickers):
@@ -302,7 +302,7 @@ def display_results(potential_gainers, top_technical_stocks):
     st.dataframe(df[['ticker', 'headline', 'link', 'sentiment_score', 'sentiment_label']])
 
     # Generate and display word cloud for positive headlines
-    positive_headlines = df['headline'].tolist()
+    positive_headlines = [headline for headline in df['headline'].tolist() if headline is not None]
     st.write("### Word Cloud of Positive Headlines")
     generate_wordcloud(positive_headlines)
 
@@ -474,7 +474,7 @@ def analysis_page():
     chart_type = st.sidebar.selectbox(
         "Select Chart Type",
         options=["candle", "line", "ohlc"]
-    )
+    ).capitalize()
 
     intervals = ["1m", "2m", "5m", "15m", "30m", "1h", "2h", "1d"]
     selected_interval = st.sidebar.selectbox("Select Time Interval for Chart", intervals)
@@ -482,7 +482,7 @@ def analysis_page():
     # Automatically display analysis results when selections are made
     if analysis_type == "Technical Analysis and Prediction":
         for ticker in selected_tickers:
-            st.write(f"### {ticker} - {chart_type.capitalize()} Chart")
+            st.write(f"### {ticker} - {chart_type} Chart")
             plot_candlestick_chart(ticker, selected_interval, chart_type)
 
         analysis_results = technical_analysis_and_prediction(selected_tickers)
@@ -493,6 +493,26 @@ def analysis_page():
         st.write("### Selected Stocks - News Sentiment Analysis")
         for ticker in selected_tickers:
             analyze_news_articles(ticker)
+
+# Function to display a glossary in the sidebar
+def glossary():
+    """Function to add a glossary to the sidebar."""
+    st.sidebar.title("Glossary")
+    
+    glossary_terms = {
+        "NASDAQ": "The National Association of Securities Dealers Automated Quotations, an American stock exchange.",
+        "Ticker": "A unique series of letters representing a particular publicly traded company.",
+        "Sentiment Analysis": "A process of determining the sentiment expressed in a piece of text, such as positive, negative, or neutral.",
+        "VADER": "Valence Aware Dictionary and sEntiment Reasoner, a sentiment analysis tool designed to detect sentiment in social media text.",
+        "SMA (Simple Moving Average)": "A calculation that takes the arithmetic mean of a given set of prices over a specified number of days.",
+        "RSI (Relative Strength Index)": "A momentum oscillator that measures the speed and change of price movements.",
+        "MACD (Moving Average Convergence Divergence)": "A trend-following momentum indicator that shows the relationship between two moving averages of a security’s price.",
+        "Candlestick Chart": "A type of financial chart used to describe price movements of a security, derivative, or currency.",
+        "Word Cloud": "A visual representation of text data, showing the frequency of words in varying sizes.",
+    }
+    
+    for term, definition in glossary_terms.items():
+        st.sidebar.markdown(f"**{term}**: {definition}")
 
 # Main function to navigate between pages
 def main():
@@ -507,6 +527,9 @@ def main():
     # Page navigation
     st.sidebar.title("Navigation")
     page = st.sidebar.radio("Go to", ["Home", "Analysis"])
+
+    # Call the glossary function
+    glossary()
 
     # Show the appropriate page
     if page == "Home":
