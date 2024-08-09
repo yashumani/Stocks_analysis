@@ -8,5 +8,5 @@ plotly
 scikit-learn
 transformers
 python-dotenv
-ftplib
+FTP
 python-dateutil
