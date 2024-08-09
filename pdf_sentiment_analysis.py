@@ -1,5 +1,5 @@
 import streamlit as st
-import tabula
+import camelot
 import pandas as pd
 from io import BytesIO
 
@@ -8,12 +8,13 @@ def extract_tables_from_pdf(pdf_file):
     pdf_data = BytesIO(pdf_file.read())
     
     # Extract tables from the PDF
-    tables = tabula.read_pdf(pdf_data, pages='all', multiple_tables=True, lattice=True)
+    tables = camelot.read_pdf(pdf_data, pages='1-end', flavor='lattice')
 
-    return tables
+    # Convert Camelot tables to pandas DataFrames
+    return [table.df for table in tables]
 
 def main():
-    st.title("PDF Table Reader")
+    st.title("PDF Table Reader using Camelot")
     st.write("Upload a PDF file to extract and display its tables.")
 
     uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
