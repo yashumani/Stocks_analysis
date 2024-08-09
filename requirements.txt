@@ -10,3 +10,4 @@ transformers
 python-dotenv
 python-dateutil
 matplotlib
+mplfinance
