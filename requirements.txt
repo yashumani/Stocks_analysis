@@ -13,6 +13,5 @@ matplotlib
 mplfinance
 PyMuPDF
 Pillow
-camelot-py
-ghostscript
+pdfplumber
 PyPDF2
