@@ -13,6 +13,6 @@ matplotlib
 mplfinance
 PyMuPDF
 Pillow
-camelot-py[cv]==0.10.1
-ghostscript==0.7
-PyPDF2==3.0.1
+camelot-py
+ghostscript
+PyPDF2
