@@ -7,3 +7,5 @@ mplfinance
 scikit-learn
 nltk
 requests
+beautifulsoup4
+wordcloud
