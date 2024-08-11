@@ -22,4 +22,4 @@ numpy
 lxml_html_clean
 thinc
 pandas_ta
-talib
+ta-lib-bin
