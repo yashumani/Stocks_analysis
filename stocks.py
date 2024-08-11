@@ -1,332 +1,164 @@
-import pandas as pd
-from ftplib import FTP
-from io import StringIO
-import requests
-import streamlit as st
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-import nltk
-import re
-from bs4 import BeautifulSoup
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import datetime
 import yfinance as yf
-import matplotlib.pyplot as plt
+import pandas as pd
+import pandas_ta as ta
+import talib
 import mplfinance as mpf
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.svm import SVR
-from sklearn.model_selection import train_test_split
-import numpy as np
+import streamlit as st
 
-# Ensure that the VADER lexicon is downloaded
-nltk.download('vader_lexicon')
-
-def get_nasdaq_tickers():
-    # Connect to the NASDAQ FTP server and retrieve tickers
-    ftp = FTP('ftp.nasdaqtrader.com')
-    ftp.login()
-    ftp.cwd('SymbolDirectory')
-    data = []
-    
-    def handle_binary(data_bytes):
-        data.append(data_bytes.decode('utf-8'))
-    
-    ftp.retrbinary('RETR nasdaqlisted.txt', handle_binary)
-    ftp.quit()
-    content = ''.join(data)
-    file = StringIO(content)
-    df = pd.read_csv(file, sep='|')
-    return df[df['Test Issue'] == 'N']['Symbol'].astype(str).tolist()
-
-def fetch_yahoo_finance_headlines():
-    headlines = []
-    url = "https://finance.yahoo.com/rss/topstories"
-    today_date = datetime.datetime.now().date()
+def fetch_stock_data(ticker, period='1mo', interval='1d'):
     try:
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, "xml")
-        items = soup.find_all("item")
-        for item in items:
-            headline = item.title.text
-            link = item.link.text
-            pub_date = item.pubDate.text
-            # Correct ISO format for date parsing
-            pub_date_parsed = datetime.datetime.fromisoformat(pub_date.replace('Z', '+00:00'))
-            description_html = item.description.text if item.description else headline
-            description = BeautifulSoup(description_html, "html.parser").get_text()
-            if headline and isinstance(headline, str) and pub_date_parsed.date() == today_date:
-                headlines.append({"title": headline, "description": description, "url": link})
-    except requests.RequestException as e:
-        st.error(f"An error occurred while fetching Yahoo Finance news: {e}")
-
-    return headlines
-
-def fetch_google_news_headlines():
-    headlines = []
-    query = "NASDAQ"
-    url = f"https://news.google.com/rss/search?q={query}"
-    today_date = datetime.datetime.now().date()
-    try:
-        response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
-        response.raise_for_status()
-        soup = BeautifulSoup(response.content, "xml")
-        items = soup.find_all("item")
-        for item in items:
-            headline = item.title.text
-            link = item.link.text
-            pub_date = item.pubDate.text
-            pub_date_parsed = datetime.datetime.strptime(pub_date, "%a, %d %b %Y %H:%M:%S %Z")
-            description_html = item.description.text if item.description else headline
-            description = BeautifulSoup(description_html, "html.parser").get_text()
-            if headline and isinstance(headline, str) and pub_date_parsed.date() == today_date:
-                headlines.append({"title": headline, "description": description, "url": link})
-    except requests.RequestException as e:
-        st.error(f"An error occurred while fetching Google News: {e}")
-
-    return headlines
-
-def extract_ticker(headline, nasdaq_tickers):
-    # Look for patterns like "(AAPL)" or standalone "AAPL"
-    matches = re.findall(r'\b([A-Z]{1,5})\b', headline)
-    for match in matches:
-        if match in nasdaq_tickers:
-            return match
-    return None
-
-def highlight_keywords(text, keywords):
-    # Ensure text is a string
-    if not text:
-        return ""
-    # Highlight keywords in the text using regex for whole words
-    for keyword in keywords:
-        text = re.sub(rf'\b{re.escape(keyword)}\b', f"**{keyword}**", text, flags=re.IGNORECASE)
-    return text
-
-def analyze_sentiment(text):
-    # Perform sentiment analysis using VADER
-    sia = SentimentIntensityAnalyzer()
-    return sia.polarity_scores(text)
-
-def identify_tickers_and_companies(articles, nasdaq_tickers):
-    # Identify NASDAQ tickers in articles
-    identified_articles = []
-    for article in articles:
-        title = article.get('title', '') or ''
-        description = article.get('description', '') or ''
-        ticker = extract_ticker(title, nasdaq_tickers)
-        if ticker:
-            identified_articles.append((article, [ticker]))
-
-    return identified_articles
-
-def train_predict_model(data):
-    # Prepare data
-    data['Date'] = pd.to_datetime(data.index)
-    data['Day'] = data['Date'].dt.day
-    data['Month'] = data['Date'].dt.month
-    data['Year'] = data['Date'].dt.year
-
-    # Feature selection
-    features = ['Open', 'High', 'Low', 'Volume', 'Day', 'Month', 'Year']
-    X = data[features]
-    y = data['Close']
-
-    # Scale features
-    scaler = MinMaxScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    # Train-test split
-    X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
-
-    # Model training
-    model = SVR(kernel='rbf', C=100, gamma=0.1, epsilon=.1)
-    model.fit(X_train, y_train)
-
-    # Predictions
-    predictions = model.predict(X_test)
-    next_5min_pred = model.predict(scaler.transform(X.iloc[-1].values.reshape(1, -1)))
-
-    # Calculate error
-    error = np.mean((predictions - y_test)**2)
-
-    return predictions, y_test, error, next_5min_pred
-
-def plot_stock_data(ticker, data):
-    if data.empty:
-        st.warning(f"No data available for {ticker} to display.")
-        return
-
-    # Ensure the index is a DatetimeIndex for mplfinance
-    data.index = pd.to_datetime(data.index)
-    
-    # Add technical indicators
-    data['EMA'] = data['Close'].ewm(span=20, adjust=False).mean()
-    data['MACD'] = data['Close'].ewm(span=12, adjust=False).mean() - data['Close'].ewm(span=26, adjust=False).mean()
-    data['Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
-    data['VWAP'] = (data['Volume'] * (data['High'] + data['Low'] + data['Close']) / 3).cumsum() / data['Volume'].cumsum()
-
-    # Plotting
-    apds = [mpf.make_addplot(data['EMA'], color='red', width=1.2),
-            mpf.make_addplot(data['MACD'], color='green', width=1.2),
-            mpf.make_addplot(data['Signal'], color='blue', width=1.2),
-            mpf.make_addplot(data['VWAP'], color='yellow', width=1.2)]
-
-    fig, axes = mpf.plot(data, type='candle', style='yahoo', volume=True,
-                         title=f"{ticker} Stock Price", addplot=apds,
-                         returnfig=True)
-
-    # Enhance plot details
-    axes[0].legend(['EMA', 'MACD', 'Signal Line', 'VWAP'])
-    axes[0].set_ylabel('Price')
-    axes[2].set_ylabel('Volume')
-    axes[0].grid(True)
-    fig.autofmt_xdate()  # Improve date readability
-
-    st.pyplot(fig)
-
-
-def display_articles_with_analysis(articles_with_tickers, period, interval):
-    # Display all articles with sentiment analysis and identified tickers
-    if not articles_with_tickers:
-        st.warning("No relevant finance news articles found for today.")
-        return
-
-    sentiment_data = []
-
-    for article, tickers in articles_with_tickers:
-        title = article.get('title', '') or 'No title available'
-        description = article.get('description', '') or 'No description available'
-        sentiment = analyze_sentiment(description)  # Use description for sentiment analysis
-        highlighted_title = highlight_keywords(title, tickers)
-        highlighted_summary = highlight_keywords(description, tickers)
-        
-        # Add sentiment data for visualization
-        for ticker in tickers:
-            sentiment_data.append({
-                'Ticker': ticker,
-                'Positive': sentiment['pos'],
-                'Negative': sentiment['neg'],
-                'Neutral': sentiment['neu'],
-                'Compound': sentiment['compound']
-            })
-
-        st.markdown(f"**Headline**: {highlighted_title}")
-        st.markdown(f"**Summary**: {highlighted_summary}")  # Show description/summary
-        st.markdown(f"**Tickers/Companies Identified**: **{', '.join(tickers)}**" if tickers else "No tickers identified.")
-        st.markdown(f"**Link**: [Read more]({article['url']})")
-        st.markdown(
-            f"**Sentiment**: "
-            f"Positive: **{sentiment['pos']:.2f}**, "
-            f"Negative: **{sentiment['neg']:.2f}**, "
-            f"Neutral: **{sentiment['neu']:.2f}**, "
-            f"Compound: **{sentiment['compound']:.2f}**"
-        )
-        
-        # Technical Analysis
-        try:
-            ticker_data = yf.download(tickers[0], period=period, interval=interval)  # Use selected period and interval
-            plot_stock_data(tickers[0], ticker_data)
-            predictions, y_test, error, next_5min_pred = train_predict_model(ticker_data)
-            st.write(f"Prediction error: {error:.2f}")
-            st.write(f"Next 5 min predicted price for {tickers[0]}: {next_5min_pred[0]:.2f}")
-        except Exception as e:
-            st.error(f"Failed to download data for {tickers[0]}: {e}")
-        
-        st.markdown("---")
-
-def send_feedback_email(name, email, feedback):
-    # Send feedback email using SMTP
-    sender_email = "yashusharma800@gmail.com"  # Update this with your sender email
-    sender_password = "sdoe qftq nrem uoql"  # Use the app password here
-    receiver_email = "yashusharma800@gmail.com"
-
-    subject = f"Feedback from {name}"
-    body = f"Name: {name}\nEmail: {email}\n\nFeedback:\n{feedback}"
-
-    # Create email message
-    message = MIMEMultipart()
-    message["From"] = sender_email
-    message["To"] = receiver_email
-    message["Subject"] = subject
-
-    message.attach(MIMEText(body, "plain"))
-
-    # Send the email via SMTP server
-    try:
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(sender_email, sender_password)
-            server.sendmail(sender_email, receiver_email, message.as_string())
-            st.success("Thank you for your feedback! Your response has been sent.")
+        # Fetch stock data using yfinance
+        stock_data = yf.download(ticker, period=period, interval=interval)
+        if stock_data.empty:
+            raise ValueError(f"No data found for {ticker}")
+        return stock_data
     except Exception as e:
-        st.error(f"Error sending feedback: {e}")
+        st.error(f"Failed to download data for {ticker}: {str(e)}")
+        return pd.DataFrame()
 
-# Streamlit App
-st.title("Today's US Finance News Analysis")
+def calculate_indicators(df):
+    # Add technical indicators
+    df['SMA'] = ta.sma(df['Close'], length=20)
+    df['EMA'] = ta.ema(df['Close'], length=20)
+    df['RSI'] = ta.rsi(df['Close'], length=14)
+    macd = ta.macd(df['Close'])
+    df['MACD'] = macd['MACD_12_26_9']
+    df['MACD_Signal'] = macd['MACDs_12_26_9']
+    df['MACD_Hist'] = macd['MACDh_12_26_9']
+    bollinger = ta.bbands(df['Close'], length=20)
+    df['Bollinger_Mid'] = bollinger['BBM_20_2.0']
+    df['Bollinger_Upper'] = bollinger['BBU_20_2.0']
+    df['Bollinger_Lower'] = bollinger['BBL_20_2.0']
+    df['OBV'] = ta.obv(df['Close'], df['Volume'])
+    
+    # Additional indicators from TA-Lib
+    df['ADX'] = talib.ADX(df['High'], df['Low'], df['Close'], timeperiod=14)
+    df['CCI'] = talib.CCI(df['High'], df['Low'], df['Close'], timeperiod=14)
+    df['ATR'] = talib.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
 
-# Sidebar for date range and interval selection
-st.sidebar.title("Chart Settings")
-period = st.sidebar.selectbox(
-    "Select Date Range:",
-    ("1hr","1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"),
-    index=1  # Default to "5d"
-)
+    return df
 
-interval = st.sidebar.selectbox(
-    "Select Interval:",
-    ("1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"),
-    index=2  # Default to "5m"
-)
+def identify_candlestick_patterns(df):
+    # Identify candlestick patterns using TA-Lib
+    patterns = {
+        'Bullish Hammer': talib.CDLHAMMER,
+        'Shooting Star': talib.CDLSHOOTINGSTAR,
+        'Bullish Engulfing': talib.CDLENGULFING,
+        'Bearish Engulfing': talib.CDLENGULFING,
+        'Morning Star': talib.CDLMORNINGSTAR,
+        'Evening Star': talib.CDLEVENINGSTAR
+    }
+    
+    pattern_results = {name: func(df['Open'], df['High'], df['Low'], df['Close']) for name, func in patterns.items()}
+    
+    for pattern_name, results in pattern_results.items():
+        df[pattern_name] = results.apply(lambda x: pattern_name if x != 0 else None)
+        
+    return df
 
-# Sidebar Glossary
-st.sidebar.title("Glossary & Instructions")
-st.sidebar.markdown(
-    """
-    **How to Use the App:**
-    1. **Fetch News**: The app automatically retrieves today's news articles related to finance, economy, stocks, markets, and business.
-    2. **Analysis**: The app performs sentiment analysis on the fetched news articles and identifies relevant NASDAQ tickers.
-    3. **Visualization**: View sentiment scores and highlighted information in the articles.
+def plot_stock_data(df, ticker):
+    # Plot the stock data with mplfinance
+    fig, axes = mpf.plot(
+        df,
+        type='candle',
+        addplot=[
+            mpf.make_addplot(df['SMA'], color='green', width=0.75),
+            mpf.make_addplot(df['EMA'], color='blue', width=0.75),
+            mpf.make_addplot(df['Bollinger_Upper'], color='orange', width=0.75),
+            mpf.make_addplot(df['Bollinger_Lower'], color='orange', width=0.75),
+            mpf.make_addplot(df['RSI'], panel=1, color='purple', secondary_y=True),
+            mpf.make_addplot(df['MACD'], panel=2, color='red', secondary_y=True),
+            mpf.make_addplot(df['MACD_Signal'], panel=2, color='blue', secondary_y=True),
+            mpf.make_addplot(df['OBV'], panel=3, color='brown', secondary_y=True),
+        ],
+        volume=True,
+        title=f'{ticker} Stock Price and Indicators',
+        returnfig=True
+    )
+    return fig
 
-    **Reading the Sentiment Analysis:**
-    - **Positive**: Indicates a positive sentiment score for the article summary.
-    - **Negative**: Indicates a negative sentiment score for the article summary.
-    - **Neutral**: Reflects a neutral sentiment score, showing balance.
-    - **Compound**: This is a normalized score representing overall sentiment. Positive values suggest overall positive sentiment, while negative values suggest negative sentiment.
+def explain_indicators():
+    st.sidebar.header("Indicator Explanations")
+    st.sidebar.markdown("""
+    **SMA (Simple Moving Average):** An average of closing prices over a specified period. Used to identify trends.
+    
+    **EMA (Exponential Moving Average):** Similar to SMA but gives more weight to recent prices. Reacts faster to price changes.
+    
+    **RSI (Relative Strength Index):** Measures the speed and change of price movements on a scale of 0 to 100. An RSI above 70 indicates overbought conditions, and below 30 indicates oversold conditions.
+    
+    **MACD (Moving Average Convergence Divergence):** A trend-following momentum indicator that shows the relationship between two moving averages. A bullish signal is generated when the MACD line crosses above the signal line, and a bearish signal is generated when it crosses below.
+    
+    **Bollinger Bands:** Consists of a middle band (SMA) and two outer bands (standard deviations above and below the SMA). The bands expand and contract based on market volatility.
+    
+    **OBV (On-Balance Volume):** Measures buying and selling pressure. It adds volume on up days and subtracts volume on down days.
 
-    **Highlighted Information:**
-    - **Tickers/Keywords**: Keywords and tickers in headlines and summaries are highlighted to draw attention.
+    **ADX (Average Directional Index):** Measures trend strength. A value above 25 indicates a strong trend.
 
-    **Feedback**: Use the feedback form to provide your thoughts about the app. Your feedback will be sent directly via email for further improvements.
-    """
-)
+    **CCI (Commodity Channel Index):** Identifies cyclical trends in a market. A value above 100 may indicate an overbought condition, and below -100 may indicate an oversold condition.
 
-# Fetch NASDAQ tickers and company names automatically
-nasdaq_tickers = get_nasdaq_tickers()
+    **ATR (Average True Range):** Measures market volatility. High ATR values indicate high volatility, while low values indicate low volatility.
+    """)
 
-# Fetch Latest Articles from Yahoo Finance and Google News
-yahoo_articles = fetch_yahoo_finance_headlines()
-google_articles = fetch_google_news_headlines()
+def make_predictions(df):
+    st.header("Predictions")
+    st.write("The following are potential predictions based on the latest data and indicators:")
+    
+    # Example of predictions based on indicators
+    if df['RSI'].iloc[-1] > 70:
+        st.write("The stock might be overbought, indicating a potential price decline.")
+    elif df['RSI'].iloc[-1] < 30:
+        st.write("The stock might be oversold, indicating a potential price increase.")
+    
+    if df['MACD'].iloc[-1] > df['MACD_Signal'].iloc[-1]:
+        st.write("MACD is bullish: Potential upward momentum.")
+    elif df['MACD'].iloc[-1] < df['MACD_Signal'].iloc[-1]:
+        st.write("MACD is bearish: Potential downward momentum.")
+    
+    # Adding additional checks for candlestick patterns
+    if 'Bullish Hammer' in df.columns and df['Bullish Hammer'].iloc[-1] == 'Bullish Hammer':
+        st.write("Bullish Hammer detected: Possible upward reversal.")
+    if 'Shooting Star' in df.columns and df['Shooting Star'].iloc[-1] == 'Shooting Star':
+        st.write("Shooting Star detected: Possible downward reversal.")
+    
+    # Example prediction logic for ADX
+    if df['ADX'].iloc[-1] > 25:
+        st.write("Strong trend detected according to ADX.")
 
-# Combine and Filter Finance or Stock-Related News
-all_articles = yahoo_articles + google_articles
+def main():
+    st.title("Real-Time Stock Analysis App")
 
-# Step 3: Analyze News and Identify Tickers/Companies
-articles_with_tickers = identify_tickers_and_companies(all_articles, nasdaq_tickers)
+    # Input stock ticker symbol
+    ticker = st.text_input("Enter the stock ticker:", "AAPL")
 
-# Step 4: Display All Filtered Articles with Links and Analysis
-display_articles_with_analysis(articles_with_tickers, period, interval)
+    # Select interval
+    interval = st.selectbox("Select interval:", ["1m", "5m", "15m", "30m", "1h", "1d", "1wk", "1mo"])
 
-# Feedback Form
-st.sidebar.title("Feedback")
-st.sidebar.markdown("We would love to hear your thoughts about the app!")
+    # Select period
+    period = st.selectbox("Select period:", ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"])
 
-with st.sidebar.form("feedback_form"):
-    name = st.text_input("Name")
-    email = st.text_input("Email")
-    feedback = st.text_area("Your Feedback")
-    submitted = st.form_submit_button("Submit")
+    if ticker:
+        # Fetch data
+        stock_data = fetch_stock_data(ticker, period=period, interval=interval)
 
-    if submitted:
-        send_feedback_email(name, email, feedback)
+        if not stock_data.empty:
+            # Calculate indicators
+            stock_data = calculate_indicators(stock_data)
+
+            # Identify candlestick patterns
+            stock_data = identify_candlestick_patterns(stock_data)
+
+            # Display patterns identified
+            st.write(stock_data[['Bullish Hammer', 'Shooting Star', 'Bullish Engulfing', 'Bearish Engulfing', 'Morning Star', 'Evening Star']].dropna(how='all'))
+
+            # Plot data
+            fig = plot_stock_data(stock_data, ticker)
+            st.pyplot(fig)
+
+            # Explain indicators
+            explain_indicators()
+
+            # Make predictions
+            make_predictions(stock_data)
+
+if __name__ == "__main__":
+    main()
