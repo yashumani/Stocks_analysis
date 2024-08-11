@@ -19,3 +19,4 @@ WordCloud
 newspaper3k
 spacy
 numpy
+lxml_html_clean
