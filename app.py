@@ -12,7 +12,6 @@ from wordcloud import WordCloud
 import nltk
 import spacy
 import numpy as np
-import time
 
 # Initialize NLP models
 nltk.download('vader_lexicon')
@@ -136,21 +135,6 @@ def generate_wordcloud(text):
     ax.axis('off')
     st.pyplot(fig)
 
-# Function to get news articles for the given tickers
-def get_news_articles(tickers, num_articles=5):
-    articles = []
-    for ticker in tickers:
-        url = f"https://finance.yahoo.com/quote/{ticker}/news"
-        for _ in range(3):  # Retry up to 3 times
-            content = fetch_article_content(url)
-            if content and not content.startswith("An error occurred"):
-                articles.append((ticker, content))
-                break
-            time.sleep(2)  # Wait for 2 seconds before retrying
-        if len(articles) >= num_articles:
-            break
-    return articles
-
 # Placeholder for predictions (can be extended with ML models)
 def generate_predictions(technical_data):
     # Use technical indicators and historical data for basic prediction logic
@@ -174,57 +158,76 @@ def main():
 
     ticker_set = set(all_tickers_df['Symbol'])
 
-    # Fetch and display news articles with sentiment analysis
-    st.subheader("Step 1: News Articles - Sentiment Analysis")
-    
-    articles = get_news_articles(ticker_set)
-    
-    article_contents = ""
-    for ticker, content in articles:  # Limiting to top 5 articles for display
-        st.write(f"**Ticker:** {ticker}")
-        if content.startswith("An error occurred"):
-            st.write(content)
+    # Fetch and display news articles
+    st.subheader("News Articles")
+    try:
+        # Use yfinance to get news articles for a specific ticker
+        # Replace with live news fetching logic
+        ticker_symbol = "AAPL"
+        company_info = yf.Ticker(ticker_symbol)
+        news = company_info.news
+        extracted_tickers = []
+
+        if news:
+            for article in news[:5]:  # Display the top 5 news articles
+                st.write(f"**Title:** {article['title']}")
+                st.write(f"**Published:** {article['providerPublishTime']}")
+                st.write(f"[Read more]({article['link']})")
+
+                # Fetch article content
+                content = fetch_article_content(article['link'])
+                if content.strip():  # Check if content is not empty
+                    st.write(content[:500] + "...")  # Display the first 500 characters
+
+                    # Sentiment analysis
+                    score, sentiment = analyze_sentiment(content)
+                    st.write(f"**Sentiment Score:** {score:.2f} ({sentiment})")
+
+                    # Extract tickers from content
+                    tickers_in_article = extract_tickers_from_text(content, ticker_set)
+                    extracted_tickers.extend(tickers_in_article)
+                else:
+                    st.write("No content found.")
+                st.write("---")
+
+            # Generate word cloud for the headlines
+            headlines = ' '.join([article['title'] for article in news[:5]])
+            st.write("### Word Cloud of News Headlines")
+            generate_wordcloud(headlines)
+
+            # Show extracted tickers
+            extracted_tickers = list(set(extracted_tickers))  # Remove duplicates
+            st.write("Extracted Tickers from News Articles:", extracted_tickers)
+
         else:
-            st.write(f"**Article Content:** {content[:500]}...")  # Display the first 500 characters
+            st.write("No recent news found.")
+    except Exception as e:
+        st.error(f"An error occurred while fetching news: {e}")
 
-            # Sentiment analysis
-            score, sentiment = analyze_sentiment(content)
-            st.write(f"**Sentiment Score:** {score:.2f} ({sentiment})")
-            article_contents += " " + content
-        st.write("---")
+    # Allow users to select tickers for analysis
+    selected_ticker = st.selectbox("Select Ticker for Analysis", extracted_tickers)
+    st.write(f"You selected: {selected_ticker}")
 
-    # Step 2: Extracted Tickers
-    st.subheader("Step 2: Extracted Tickers")
-    extracted_tickers = extract_tickers_from_text(article_contents, ticker_set)
-    if extracted_tickers:
-        st.write("Extracted Tickers from News Articles:", extracted_tickers)
+    # Fetch detailed company information
+    company_profile = fetch_company_info(selected_ticker)
+    if company_profile:
+        st.header(f"Company Profile for {company_profile['Name']}")
+        st.write(f"**Sector:** {company_profile['Sector']}")
+        st.write(f"**Industry:** {company_profile['Industry']}")
+        st.write(f"**Market Cap:** {company_profile['Market Cap']}")
+        st.write(f"**Full Time Employees:** {company_profile['Full Time Employees']}")
+        st.write(f"**Description:** {company_profile['Description']}")
 
-        # Allow users to select tickers for analysis
-        selected_ticker = st.selectbox("Select Ticker for Analysis", extracted_tickers)
-        st.write(f"You selected: {selected_ticker}")
+    # Perform technical analysis
+    technical_data = perform_technical_analysis(selected_ticker)
+    st.header("Technical Analysis")
+    st.line_chart(technical_data[['Close', 'SMA_20', 'SMA_50']])
+    st.line_chart(technical_data[['RSI']])
 
-        # Fetch detailed company information
-        company_profile = fetch_company_info(selected_ticker)
-        if company_profile:
-            st.header(f"Company Profile for {company_profile['Name']}")
-            st.write(f"**Sector:** {company_profile['Sector']}")
-            st.write(f"**Industry:** {company_profile['Industry']}")
-            st.write(f"**Market Cap:** {company_profile['Market Cap']}")
-            st.write(f"**Full Time Employees:** {company_profile['Full Time Employees']}")
-            st.write(f"**Description:** {company_profile['Description']}")
-
-        # Perform technical analysis
-        technical_data = perform_technical_analysis(selected_ticker)
-        st.header("Technical Analysis")
-        st.line_chart(technical_data[['Close', 'SMA_20', 'SMA_50']])
-        st.line_chart(technical_data[['RSI']])
-
-        # Generate predictions
-        st.subheader("Stock Predictions")
-        prediction = generate_predictions(technical_data)
-        st.write(f"Based on the RSI value, the suggested action is: **{prediction}**")
-    else:
-        st.write("No valid tickers were extracted from the news articles.")
+    # Generate predictions
+    st.subheader("Stock Predictions")
+    prediction = generate_predictions(technical_data)
+    st.write(f"Based on the RSI value, the suggested action is: **{prediction}**")
 
 if __name__ == "__main__":
     main()
