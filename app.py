@@ -162,7 +162,6 @@ def main():
     st.subheader("News Articles")
     try:
         # Use yfinance to get news articles for a specific ticker
-        # Replace with live news fetching logic
         ticker_symbol = "AAPL"
         company_info = yf.Ticker(ticker_symbol)
         news = company_info.news
