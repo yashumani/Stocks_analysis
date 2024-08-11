@@ -16,3 +16,6 @@ Pillow
 pdfplumber
 PyPDF2
 WordCloud
+newspaper3k
+spacy
+numpy
