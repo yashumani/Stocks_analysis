@@ -22,4 +22,3 @@ numpy
 lxml_html_clean
 thinc
 pandas-ta
-TA-Lib
