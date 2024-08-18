@@ -3,21 +3,17 @@ import pandas as pd
 import yfinance as yf
 import requests
 from bs4 import BeautifulSoup
-from nltk.sentiment.vader import SentimentIntensityAnalyzer
-from ftplib import FTP
-from io import StringIO
-import matplotlib.pyplot as plt
-from wordcloud import WordCloud
 import nltk
 import spacy
 import pandas_ta as ta
 
-# Initialize NLP models
+# Ensure NLTK data is downloaded
 nltk.download('vader_lexicon')
-nlp = spacy.load("en_core_web_sm")
+nltk.download('wordnet')
+nltk.download('omw-1.4')
 
-# Initialize VADER sentiment analyzer
-sia = SentimentIntensityAnalyzer()
+# Initialize NLP models
+nlp = spacy.load("en_core_web_sm")
 
 # Configure the Streamlit app
 st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
@@ -85,7 +81,7 @@ def extract_tickers_from_text(text, known_tickers):
     for ent in doc.ents:
         if ent.label_ == "ORG":
             candidate = ent.text.upper()
-            if candidate in known_tickers:
+            if candidate in known_tickers):
                 extracted_tickers.add(candidate)
     return list(extracted_tickers)
 
@@ -118,42 +114,6 @@ def perform_technical_analysis(ticker):
     data['RSI'] = ta.rsi(data['Close'], length=14)
     
     return data
-
-# Function to perform sentiment analysis on text
-def analyze_sentiment(text):
-    score = sia.polarity_scores(text)
-    return score['compound'], 'Positive' if score['compound'] > 0.05 else 'Negative' if score['compound'] < -0.05 else 'Neutral'
-
-# Function to generate a word cloud
-def generate_wordcloud(text):
-    wordcloud = WordCloud(width=800, height=400, background_color='white').generate(text)
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.imshow(wordcloud, interpolation='bilinear')
-    ax.axis('off')
-    st.pyplot(fig)
-
-# Function to apply risk management
-def apply_risk_management(stock, buy_signals, sell_signals, data):
-    positions = []
-    stop_loss = 0.95  # Example: 5% below buy price
-    take_profit = 1.10  # Example: 10% above buy price
-
-    for i in range(len(data)):
-        if buy_signals[i]:
-            buy_price = data['Close'].iloc[i]
-            positions.append(('Buy', buy_price, data.index[i]))
-        elif sell_signals[i]:
-            if len(positions) > 0 and positions[-1][0] == 'Buy':
-                sell_price = data['Close'].iloc[i]
-                positions.append(('Sell', sell_price, data.index[i]))
-        elif len(positions) > 0 and positions[-1][0] == 'Buy':
-            current_price = data['Close'].iloc[i]
-            if current_price <= positions[-1][1] * stop_loss:
-                positions.append(('Sell (Stop Loss)', current_price, data.index[i]))
-            elif current_price >= positions[-1][1] * take_profit:
-                positions.append(('Sell (Take Profit)', current_price, data.index[i]))
-
-    return positions
 
 # Function to plot data
 def plot_data(data, stock, buy_signals, sell_signals):
