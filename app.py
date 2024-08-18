@@ -10,48 +10,7 @@ from wordcloud import WordCloud
 import nltk
 import spacy
 import numpy as np
-import requests
-import os
-import sys
-import subprocess
-
-# check if the library folder already exists, to avoid building everytime you load the page
-if not os.path.isdir("/tmp/ta-lib"):
-
-    # Download ta-lib to disk
-    with open("/tmp/ta-lib-0.4.0-src.tar.gz", "wb") as file:
-        response = requests.get(
-            "http://prdownloads.sourceforge.net/ta-lib/ta-lib-0.4.0-src.tar.gz"
-        )
-        file.write(response.content)
-    # get our current dir, to configure it back again. Just housekeeping
-    default_cwd = os.getcwd()
-    os.chdir("/tmp")
-    # untar
-    os.system("tar -zxvf ta-lib-0.4.0-src.tar.gz")
-    os.chdir("/tmp/ta-lib")
-    # build
-    os.system("./configure --prefix=/home/appuser/venv/")
-    os.system("make")
-    # install
-    os.system("mkdir -p /home/appuser/venv/")
-    os.system("make install")
-    os.system("ls -la /home/appuser/venv/")
-    # back to the cwd
-    os.chdir(default_cwd)
-    sys.stdout.flush()
-
-# add the library to our current environment
-from ctypes import *
-
-lib = CDLL("/home/appuser/venv/lib/libta_lib.so.0.0.0")
-# import library
-try:
-    import talib
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--global-option=build_ext", "--global-option=-L/home/appuser/venv/lib/", "--global-option=-I/home/appuser/venv/include/", "ta-lib==0.4.24"])
-finally:
-    import talib
+import pandas_ta as ta  # Replaced `ta` with `pandas-ta`
 
 # Initialize NLP models
 nltk.download('vader_lexicon')
@@ -138,11 +97,8 @@ def perform_technical_analysis(ticker):
     data['20_SMA'] = data['Close'].rolling(window=20).mean()
     data['50_SMA'] = data['Close'].rolling(window=50).mean()
     
-    delta = data['Close'].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    data['RSI'] = 100 - (100 / (1 + rs))
+    # Calculating RSI using pandas-ta
+    data['RSI'] = ta.rsi(data['Close'], length=14)
     
     return data
 
@@ -224,18 +180,24 @@ def main():
 
     extracted_tickers = []
     for url in news_articles:
-        article_content = fetch_article_content(url)
-        tickers = extract_tickers_from_text(article_content, ticker_set)
-        extracted_tickers.extend(tickers)
-
-    extracted_tickers = list(set(extracted_tickers))
-    st.write("Extracted Tickers from News Articles:", extracted_tickers)
+        content = fetch_article_content(url)
+        if content:
+            extracted_tickers += extract_tickers_from_text(content, ticker_set)
+    
+    extracted_tickers = list(set(extracted_tickers))  # Remove duplicates
 
     if not extracted_tickers:
-        st.error("No valid tickers were extracted from the news articles.")
+        st.error("No tickers found in the news articles.")
         return
+    
+    st.write("Extracted Tickers from News Articles:", extracted_tickers)
 
     selected_ticker = st.selectbox("Select Ticker for Analysis", extracted_tickers)
+
+    if selected_ticker is None or selected_ticker == "":
+        st.error("No ticker selected.")
+        return
+
     st.write(f"You selected: {selected_ticker}")
 
     company_profile = fetch_company_info(selected_ticker)
