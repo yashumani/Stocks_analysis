@@ -6,6 +6,8 @@ from bs4 import BeautifulSoup
 import nltk
 import spacy
 import pandas_ta as ta
+from ftplib import FTP  # Ensure this import is included
+from io import StringIO  # Add this import to fix the StringIO error
 
 # Ensure NLTK data is downloaded
 nltk.download('vader_lexicon')
@@ -81,7 +83,7 @@ def extract_tickers_from_text(text, known_tickers):
     for ent in doc.ents:
         if ent.label_ == "ORG":
             candidate = ent.text.upper()
-            if candidate in known_tickers):
+            if candidate in known_tickers:
                 extracted_tickers.add(candidate)
     return list(extracted_tickers)
 
