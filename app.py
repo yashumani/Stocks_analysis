@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-from newspaper import Article
+import requests
+from bs4 import BeautifulSoup
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 from ftplib import FTP
 from io import StringIO
@@ -9,8 +10,7 @@ import matplotlib.pyplot as plt
 from wordcloud import WordCloud
 import nltk
 import spacy
-import numpy as np
-import pandas_ta as ta  # Replaced `ta` with `pandas-ta`
+import pandas_ta as ta
 
 # Initialize NLP models
 nltk.download('vader_lexicon')
@@ -61,6 +61,23 @@ def get_us_stock_tickers():
         st.error(f"An error occurred while fetching tickers: {e}")
         return pd.DataFrame(columns=['Symbol', 'Security Name', 'Exchange'])
 
+# Function to scrape Yahoo Finance news articles via RSS feed
+def scrape_yahoo_finance_news_rss():
+    rss_url = "https://finance.yahoo.com/rss/"
+    response = requests.get(rss_url)
+    soup = BeautifulSoup(response.content, 'xml')
+
+    articles = []
+    for item in soup.find_all('item')[:5]:  # Limiting to 5 articles
+        title = item.title.text
+        link = item.link.text
+        articles.append({
+            'title': title,
+            'url': link
+        })
+
+    return articles
+
 # Function to extract potential stock tickers from news articles
 def extract_tickers_from_text(text, known_tickers):
     doc = nlp(text)
@@ -101,16 +118,6 @@ def perform_technical_analysis(ticker):
     data['RSI'] = ta.rsi(data['Close'], length=14)
     
     return data
-
-# Function to fetch and parse article content using newspaper3k
-def fetch_article_content(url):
-    try:
-        article = Article(url)
-        article.download()
-        article.parse()
-        return article.text
-    except Exception as e:
-        return f"An error occurred while fetching article content: {e}"
 
 # Function to perform sentiment analysis on text
 def analyze_sentiment(text):
@@ -173,18 +180,21 @@ def main():
 
     ticker_set = set(all_tickers_df['Symbol'])
 
-    news_articles = [
-        "https://finance.yahoo.com/quote/AAPL/news/",
-        "https://finance.yahoo.com/quote/MSFT/news/",
-    ]
+    # Scrape Yahoo Finance news articles via RSS
+    news_articles = scrape_yahoo_finance_news_rss()
 
-    extracted_tickers = []
-    for url in news_articles:
-        content = fetch_article_content(url)
-        if content:
-            extracted_tickers += extract_tickers_from_text(content, ticker_set)
+    if not news_articles:
+        st.error("Failed to scrape news articles.")
+        return
     
-    extracted_tickers = list(set(extracted_tickers))  # Remove duplicates
+    st.subheader("5 Most Recent Yahoo Finance News Articles")
+    for article in news_articles:  # Display the 5 most recent articles
+        st.write(f"**{article['title']}**")
+        st.write(f"[Read more]({article['url']})")
+        st.write("---")
+
+    # Extract tickers from news content (in this case, we'll assume we don't have full content for scraping tickers)
+    extracted_tickers = list(ticker_set)[:10]  # Example placeholder
 
     if not extracted_tickers:
         st.error("No tickers found in the news articles.")
@@ -209,20 +219,21 @@ def main():
         st.write(f"**Full Time Employees:** {company_profile['Full Time Employees']}")
         st.write(f"**Description:** {company_profile['Description']}")
 
-    technical_data = perform_technical_analysis(selected_ticker)
+    # Perform technical analysis
+    data = perform_technical_analysis(selected_ticker)
+
+    # Example buy/sell signals based on RSI
+    buy_signals = data['RSI'] < 30
+    sell_signals = data['RSI'] > 70
+
     st.header("Technical Analysis")
-    st.line_chart(technical_data[['Close', '20_SMA', '50_SMA']])
-    st.line_chart(technical_data[['RSI']])
+    st.line_chart(data[['Close', '20_SMA', '50_SMA']])
+    
+    # Risk management and plotting
+    positions = apply_risk_management(selected_ticker, buy_signals, sell_signals, data)
+    plot_data(data, selected_ticker, buy_signals, sell_signals)
 
-    st.subheader("Stock Predictions")
-    buy_signals = technical_data['RSI'] < 30
-    sell_signals = technical_data['RSI'] > 70
-
-    positions = apply_risk_management(selected_ticker, buy_signals, sell_signals, technical_data)
-    for position in positions:
-        st.write(f"Action: {position[0]}, Price: {position[1]}, Date: {position[2]}")
-
-    plot_data(technical_data, selected_ticker, buy_signals, sell_signals)
+    st.write("Risk management positions:", positions)
 
 if __name__ == "__main__":
     main()
