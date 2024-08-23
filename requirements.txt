@@ -13,8 +13,6 @@ matplotlib
 mplfinance
 PyMuPDF
 Pillow
-pdfplumber
-PyPDF2
 WordCloud
 newspaper3k
 spacy
@@ -22,3 +20,6 @@ numpy
 lxml_html_clean
 thinc
 pandas-ta
+streamlit
+selenium
+webdriver-manager
