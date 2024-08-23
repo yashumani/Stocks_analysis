@@ -7,12 +7,8 @@ import mplfinance as mpf
 from datetime import datetime
 from ftplib import FTP
 from io import StringIO
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from webdriver_manager.chrome import ChromeDriverManager
-import time
+import requests
+from bs4 import BeautifulSoup
 
 # Ensure NLTK data is downloaded
 nltk.download('vader_lexicon')
@@ -21,37 +17,6 @@ nltk.download('omw-1.4')
 
 # Configure the Streamlit app
 st.set_page_config(page_title="Stock Analysis Dashboard", layout="wide")
-
-# Function to set up Selenium WebDriver
-def setup_selenium():
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    return driver
-
-# Function to scrape Yahoo Finance stock market news
-def scrape_yahoo_finance_news():
-    url = "https://finance.yahoo.com/topic/stock-market-news/"
-    driver = setup_selenium()
-    driver.get(url)
-    time.sleep(3)  # Wait for the page to fully load
-
-    articles = []
-    for item in driver.find_elements(By.XPATH, "//li[contains(@class, 'js-stream-content')]")[:5]:  # Limiting to 5 articles
-        title = item.find_element(By.XPATH, ".//h3").text
-        link = item.find_element(By.XPATH, ".//a").get_attribute("href")
-        summary = item.find_element(By.XPATH, ".//p").text if item.find_elements(By.XPATH, ".//p") else "No summary available"
-        articles.append({
-            'title': title,
-            'url': link,
-            'summary': summary
-        })
-
-    driver.quit()
-    return articles
 
 # Function to fetch tickers from US stock exchanges
 def get_us_stock_tickers():
@@ -91,6 +56,25 @@ def get_us_stock_tickers():
     except Exception as e:
         st.error(f"An error occurred while fetching tickers: {e}")
         return pd.DataFrame(columns=['Symbol', 'Security Name', 'Exchange'])
+
+# Function to scrape Yahoo Finance stock market news
+def scrape_yahoo_finance_news():
+    url = "https://finance.yahoo.com/topic/stock-market-news/"
+    response = requests.get(url)
+    soup = BeautifulSoup(response.content, 'html.parser')
+
+    articles = []
+    for item in soup.find_all('li', class_='js-stream-content')[:5]:  # Limiting to 5 articles
+        title = item.find('h3').get_text(strip=True)
+        link = "https://finance.yahoo.com" + item.find('a')['href']
+        summary = item.find('p').get_text(strip=True) if item.find('p') else "No summary available"
+        articles.append({
+            'title': title,
+            'url': link,
+            'summary': summary
+        })
+
+    return articles
 
 # Function to fetch detailed company information using yfinance
 def fetch_company_info(ticker):
